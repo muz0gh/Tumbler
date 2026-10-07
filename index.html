@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Tumbler</title>
+    <style>
+        :root {
+            --bg-color: #1e1e2e;
+            --text-color: #cdd6f4;
+            --red: #f38ba8;
+            --green: #a6e3a1;
+            --blue: #89b4fa;
+            --accent: #f9e2af;
+        }
+        body, html {
+            margin: 0; padding: 0;
+            width: 100%; height: 100%;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            overflow: hidden;
+            touch-action: none;
+        }
+        canvas {
+            display: block;
+            width: 100%; height: 100%;
+        }
+        #ui-layer {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(30, 30, 46, 0.85);
+            transition: opacity 0.3s;
+        }
+        .panel {
+            position: absolute; 
+            max-width: 85%;
+            text-align: center;
+            pointer-events: auto;
+            background: #313244;
+            padding: 30px;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            border: 2px solid #45475a;
+            transition: opacity 0.3s;
+        }
+        .hidden { 
+            opacity: 0; 
+            visibility: hidden; 
+            pointer-events: none !important; 
+        }
+        h1 { margin-top: 0; font-size: 2.5em; letter-spacing: 2px; color: var(--accent); }
+        p { font-size: 1.1em; margin-bottom: 25px; line-height: 1.5; white-space: pre-line; }
+        button {
+            background: var(--blue);
+            color: #11111b;
+            border: none;
+            padding: 15px 30px;
+            font-size: 1.2em;
+            font-weight: bold;
+            border-radius: 30px;
+            cursor: pointer;
+            transition: transform 0.1s, background 0.2s;
+            margin: 5px;
+        }
+        button:active { transform: scale(0.95); }
+        .ad-button { background: var(--green); }
+        #stats {
+            position: absolute;
+            top: 20px; left: 20px; right: 20px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 1.2em;
+            font-weight: bold;
+            pointer-events: none;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+        }
+        .diff-btn { background: #cba6f7; padding: 10px 20px; font-size: 1em; }
+        .settings-panel { margin-top: 20px; padding-top: 20px; border-top: 1px solid #45475a; }
+        .slider-container { display: flex; align-items: center; justify-content: space-between; margin: 10px 0; }
+        input[type="range"] { accent-color: var(--accent); }
+        #pause-btn { 
+            position: absolute; top: 15px; right: 20px; 
+            background: none; border: none; font-size: 2.5em; 
+            color: var(--text-color); cursor: pointer; 
+            pointer-events: auto; text-shadow: 0 2px 4px rgba(0,0,0,0.5); 
+            z-index: 10; padding: 0;
+        }
+        .menu-highscores { font-size: 1em; color: var(--green); margin-bottom: 20px; font-weight: bold; }
+        #lives-display { cursor: pointer; pointer-events: auto; background: rgba(0,0,0,0.3); padding: 5px 10px; border-radius: 10px;}
+    </style>
+    
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+</head>
+<body>
+
+    <canvas id="gameCanvas"></canvas>
+    <button id="pause-btn" class="hidden" onclick="pauseGame()">⏸</button>
+    
+    <div id="stats" style="pointer-events: none;">
+        <div id="score-display">Score: 0<br>High: 0</div>
+        <div id="lives-display" onclick="showTimer()">Hearts: 5.0</div>
+    </div>
+
+    <div id="ui-layer">
+        <!-- MAIN MENU PANEL -->
+        <div class="panel" id="main-panel">
+            <h1 id="title-text">TUMBLER</h1>
+            <div class="menu-highscores" id="menu-highscores-text">High Scores - Easy: 0 | Med: 0 | Hard: 0</div>
+            <p id="desc-text">Select Difficulty to Play:</p>
+            <div id="difficulty-btns">
+                <button class="diff-btn" onclick="startGame(2)">Easy (2)</button>
+                <button class="diff-btn" onclick="startGame(3)">Med (3)</button>
+                <button class="diff-btn" onclick="startGame(4)">Hard (4)</button>
+            </div>
+            <div class="settings-panel">
+                <div class="slider-container">
+                    <label for="sound-toggle">Sound Effects:</label>
+                    <input type="checkbox" id="sound-toggle" checked onchange="updateSettings()">
+                </div>
+                <div class="slider-container">
+                    <label for="vol-slider">Volume:</label>
+                    <input type="range" id="vol-slider" min="0" max="1" step="0.1" value="0.5" onchange="updateSettings()">
+                </div>
+            </div>
+        </div>
+
+        <!-- PAUSE MENU PANEL -->
+        <div class="panel hidden" id="pause-panel">
+            <h1>PAUSED</h1><br>
+            <button onclick="resumeGame()">RESUME</button>
+            <button onclick="quitToMenu()" style="background: var(--red);">MAIN MENU</button>
+        </div>
+
+        <!-- REVIVE MENU PANEL -->
+        <div class="panel hidden" id="revive-panel">
+            <h1>STRIKE 3!</h1>
+            <p>You missed 3 balls!</p>
+            <button onclick="watchReviveAd()" class="ad-button">Watch Ad to Revive</button>
+            <br><br>
+            <button onclick="declineRevive()" style="background: var(--red); font-size: 0.9em; padding: 10px 20px;">Give Up</button>
+        </div>
+    </div>
+
+<script>
+/** 
+ * GAME CONFIGURATION & FIREBASE 
+ */
+const firebaseConfig = {
+    apiKey: "AIzaSyAG1FhJ4ebStd-kPk5hcRZOFXjuRb5zA7c",
+    authDomain: "tumbler-ea4a0.firebaseapp.com",
+    projectId: "tumbler-ea4a0",
+    storageBucket: "tumbler-ea4a0.firebasestorage.app",
+    messagingSenderId: "346639240170",
+    appId: "1:346639240170:web:8a65c9c5271cb47bd74093"
+};
+
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+
+const STORAGE_KEY = "tumblerData";
+const REGEN_TIME_MS = 30 * 60 * 1000; 
+
+let saveState = {
+    highScores: { 2: 0, 3: 0, 4: 0 }, 
+    generalLives: 10,
+    lastRegenTime: Date.now(),
+    soundOn: true,
+    volume: 0.5
+};
+let currentUser = null;
+
+const COLORS = { 0: '#f38ba8', 1: '#a6e3a1', 2: '#89b4fa', 3: '#f9e2af' };
+let numColors = 3;
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function playSound(type) {
+    if (!saveState.soundOn || audioCtx.state === 'suspended') return;
+    const osc = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+    osc.connect(gainNode); gainNode.connect(audioCtx.destination);
+    const now = audioCtx.currentTime; const vol = saveState.volume;
+
+    if (type === 'collect') {
+        osc.type = 'sine'; osc.frequency.setValueAtTime(600, now); osc.frequency.exponentialRampToValueAtTime(1200, now + 0.1);
+        gainNode.gain.setValueAtTime(vol, now); gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+        osc.start(now); osc.stop(now + 0.1);
+    } else if (type === 'miss') {
+        osc.type = 'sawtooth'; osc.frequency.setValueAtTime(150, now); osc.frequency.exponentialRampToValueAtTime(50, now + 0.3);
+        gainNode.gain.setValueAtTime(vol * 0.5, now); gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+        osc.start(now); osc.stop(now + 0.3);
+    } else if (type === 'vibe') {
+        osc.type = 'triangle'; osc.frequency.setValueAtTime(200, now); osc.frequency.linearRampToValueAtTime(50, now + 2);
+        gainNode.gain.setValueAtTime(vol, now); gainNode.gain.linearRampToValueAtTime(0.01, now + 2);
+        osc.start(now); osc.stop(now + 2);
+    } else if (type === 'shift') {
+        osc.type = 'square'; osc.frequency.setValueAtTime(300, now);
+        gainNode.gain.setValueAtTime(vol * 0.1, now); gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+        osc.start(now); osc.stop(now + 0.05);
+    }
+}
+
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+let width, height;
+let gameState = "MENU", score = 0, inGameMisses = 0, maxMisses = 3;
+let buckets = [0, 1, 2], balls = [], frames = 0, isFreeFallMode = false, hasRevived = false;
+let currentSpeed = 3, spawnInterval = 120;
+const FREE_FALL_SCORE_THRESHOLD = 30;
+
+function resize() { width = canvas.width = window.innerWidth; height = canvas.height = window.innerHeight; }
+window.addEventListener('resize', resize); resize();
+
+function loadData() {
+    const localData = localStorage.getItem(STORAGE_KEY);
+    if (localData) {
+        let parsedData = JSON.parse(localData);
+        if (parsedData.highScore !== undefined && !parsedData.highScores) parsedData.highScores = { 2: 0, 3: parsedData.highScore, 4: 0 };
+        saveState = { ...saveState, ...parsedData };
+    }
+    auth.signInAnonymously().then(() => {
+        auth.onAuthStateChanged((user) => {
+            if (user) {
+                currentUser = user;
+                db.collection("users").doc(user.uid).get().then((doc) => {
+                    if (doc.exists) {
+                        let parsedData = doc.data(); saveState = { ...saveState, ...parsedData };
+                        const elapsed = Date.now() - saveState.lastRegenTime;
+                        const livesToRegen = Math.floor(elapsed / REGEN_TIME_MS);
+                        if (livesToRegen > 0) {
+                            saveState.generalLives = Math.min(10, saveState.generalLives + livesToRegen);
+                            saveState.lastRegenTime = Date.now(); saveData();
+                        }
+                    } else { saveData(); }
+                    finalizeDataLoad();
+                });
+            }
+        });
+    }).catch((error) => { finalizeDataLoad(); });
+}
+
+function finalizeDataLoad() {
+    document.getElementById("sound-toggle").checked = saveState.soundOn;
+    document.getElementById("vol-slider").value = saveState.volume;
+    updateMenuHighScores(); updateStatsUI();
+}
+
+function saveData() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(saveState));
+    if (currentUser) db.collection("users").doc(currentUser.uid).set(saveState, { merge: true });
+}
+
+function updateMenuHighScores() {
+    const hs = saveState.highScores;
+    document.getElementById("menu-highscores-text").innerText = `High Scores - Easy: ${hs[2]} | Med: ${hs[3]} | Hard: ${hs[4]}`;
+}
+
+function updateSettings() {
+    saveState.soundOn = document.getElementById("sound-toggle").checked;
+    saveState.volume = parseFloat(document.getElementById("vol-slider").value);
+    saveData(); if(saveState.soundOn && audioCtx.state === 'suspended') audioCtx.resume();
+}
+
+function updateStatsUI() {
+    document.getElementById("score-display").innerHTML = `Score: ${score}<br>High: ${saveState.highScores[numColors] || 0}`;
+    document.getElementById("lives-display").innerHTML = `Hearts: ${(saveState.generalLives / 2).toFixed(1)} / 5.0`;
+}
+
+function showTimer() {
+    if (saveState.generalLives >= 10) { alert("Your Hearts are completely full!"); return; }
+    const remaining = REGEN_TIME_MS - ((Date.now() - saveState.lastRegenTime) % REGEN_TIME_MS);
+    const mins = Math.floor(remaining / 60000), secs = Math.floor((remaining % 60000) / 1000);
+    
+    if (confirm(`Next 0.5 Heart replenishes in: ${mins}m ${secs}s\n\nWould you like to watch an Ad now to instantly restore 1 Full Heart?`)) {
+        playVideoAd(() => {
+            saveState.generalLives = Math.min(10, saveState.generalLives + 2);
+            saveData(); updateStatsUI();
+            document.getElementById("main-panel").classList.remove("hidden");
+        });
+    }
+}
+
+function pauseGame() {
+    if (gameState !== "PLAYING") return; gameState = "PAUSED";
+    document.getElementById("ui-layer").classList.remove("hidden");
+    document.getElementById("main-panel").classList.add("hidden");
+    document.getElementById("pause-panel").classList.remove("hidden");
+    document.getElementById("pause-btn").classList.add("hidden");
+}
+
+function resumeGame() {
+    gameState = "PLAYING";
+    document.getElementById("ui-layer").classList.add("hidden");
+    document.getElementById("pause-panel").classList.add("hidden");
+    document.getElementById("pause-btn").classList.remove("hidden");
+}
+
+function quitToMenu() {
+    gameState = "MENU";
+    document.getElementById("pause-panel").classList.add("hidden");
+    document.getElementById("main-panel").classList.remove("hidden");
+    document.getElementById("pause-btn").classList.add("hidden");
+    document.getElementById("title-text").innerText = "TUMBLER";
+    document.getElementById("desc-text").innerText = "Select Difficulty to Play:";
+    document.getElementById("difficulty-btns").classList.remove("hidden");
+    updateMenuHighScores();
+}
+
+/**
+ * PORTAL SDK AD ENGINE WRAPPER
+ */
+function playVideoAd(rewardCallback) {
+    // -------------------------------------------------------------
+    // TODO: Replace this logic with the Official SDK later
+    // Example for Poki: PokiSDK.rewardedBreak().then((success) => { ... })
+    // Example for CrazyGames: window.CrazyGames.SDK.ad.requestAd('rewarded', ...)
+    // -------------------------------------------------------------
+    
+    // For now, this just simulates a successful ad view instantly for your own testing
+    console.log("Portal SDK Ad Requested...");
+    setTimeout(() => {
+        alert("Simulating Publisher SDK Video Ad completion...");
+        rewardCallback();
+    }, 500);
+}
+
+class Ball {
+    constructor() {
+        this.lane = Math.floor(Math.random() * numColors);
+        this.x = (width / numColors) * this.lane + (width / (numColors * 2));
+        this.y = -30;
+        this.radius = Math.min(width * 0.05, 25);
+        this.colorType = Math.floor(Math.random() * numColors);
+        this.dy = isFreeFallMode ? 1 : currentSpeed;
+        this.gravity = isFreeFallMode ? (0.05 + Math.floor((score - FREE_FALL_SCORE_THRESHOLD)/5) * 0.02) : 0;
+    }
+    update() { this.dy += this.gravity; this.y += this.dy; }
+    draw(ctx) {
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.fillStyle = COLORS[this.colorType]; ctx.fill(); ctx.closePath();
+    }
+}
+
+function spawnBall() { if (frames % Math.max(20, Math.floor(spawnInterval)) === 0) balls.push(new Ball()); }
+
+function updateDifficulty() {
+    if (score === FREE_FALL_SCORE_THRESHOLD && !isFreeFallMode) playSound('vibe'); 
+    if (score >= FREE_FALL_SCORE_THRESHOLD) {
+        isFreeFallMode = true; document.body.style.backgroundColor = "#0d0d14"; 
+    } else {
+        currentSpeed = 3 + (score * 0.05); spawnInterval = 120 - (score * 2);
+    }
+}
+
+function checkCollisions() {
+    const bucketHeight = 60, bucketY = height - bucketHeight - 20;
+    for (let i = balls.length - 1; i >= 0; i--) {
+        let b = balls[i];
+        if (b.y - b.radius > height) {
+            balls.splice(i, 1); inGameMisses++; playSound('miss');
+            if (inGameMisses >= maxMisses) handleDeath();
+            continue;
+        }
+        if (b.y + b.radius > bucketY && b.y < bucketY + bucketHeight) {
+            let bucketColor = buckets[b.lane];
+            if (bucketColor === b.colorType) {
+                score++; playSound('collect'); balls.splice(i, 1); updateDifficulty(); updateStatsUI();
+            } else if (b.y > bucketY + (bucketHeight/2)) {
+                inGameMisses++; playSound('miss'); balls.splice(i, 1);
+                if (inGameMisses >= maxMisses) handleDeath();
+            }
+        }
+    }
+}
+
+function handleDeath() {
+    if (!hasRevived) {
+        gameState = "REVIVE_PROMPT";
+        document.getElementById("ui-layer").classList.remove("hidden");
+        document.getElementById("main-panel").classList.add("hidden");
+        document.getElementById("revive-panel").classList.remove("hidden");
+        document.getElementById("pause-btn").classList.add("hidden");
+    } else { gameOver(); }
+}
+
+function watchReviveAd() {
+    playVideoAd(() => {
+        hasRevived = true; inGameMisses = 0; gameState = "PLAYING";
+        document.getElementById("ui-layer").classList.add("hidden");
+        document.getElementById("pause-btn").classList.remove("hidden");
+    });
+}
+
+function declineRevive() { document.getElementById("revive-panel").classList.add("hidden"); gameOver(); }
+
+function gameOver() {
+    gameState = "GAMEOVER";
+    saveState.generalLives = Math.max(0, saveState.generalLives - 1); 
+    if (score > (saveState.highScores[numColors] || 0)) saveState.highScores[numColors] = score;
+    
+    updateMenuHighScores(); saveData(); updateStatsUI();
+    document.getElementById("pause-btn").classList.add("hidden");
+
+    const ui = document.getElementById("ui-layer"), title = document.getElementById("title-text");
+    const desc = document.getElementById("desc-text"), diffBtns = document.getElementById("difficulty-btns");
+
+    ui.classList.remove("hidden"); document.getElementById("main-panel").classList.remove("hidden");
+    document.body.style.backgroundColor = "var(--bg-color)";
+    
+    if (saveState.generalLives === 0) {
+        title.innerText = "OUT OF LIVES";
+        desc.innerText = "Click your Hearts in the top right to watch an Ad or wait to regenerate.";
+        diffBtns.classList.add("hidden");
+    } else {
+        title.innerText = "GAME OVER";
+        desc.innerText = `You scored: ${score}\nLost 0.5 Hearts.\n\nSelect Difficulty to Play Again:`;
+        diffBtns.classList.remove("hidden");
+    }
+}
+
+function startGame(difficultyMode) {
+    if (saveState.generalLives === 0) return;
+    if (audioCtx.state === 'suspended' && saveState.soundOn) audioCtx.resume();
+
+    numColors = difficultyMode || numColors;
+    buckets = Array.from({length: numColors}, (_, i) => i); 
+    score = 0; inGameMisses = 0; hasRevived = false; balls = []; frames = 0;
+    isFreeFallMode = false; currentSpeed = 3; spawnInterval = 120; gameState = "PLAYING";
+    
+    document.getElementById("ui-layer").classList.add("hidden");
+    document.getElementById("main-panel").classList.remove("hidden");
+    document.getElementById("revive-panel").classList.add("hidden");
+    document.body.style.backgroundColor = "var(--bg-color)";
+    document.getElementById("pause-btn").classList.remove("hidden");
+    updateStatsUI();
+}
+
+function drawBuckets() {
+    const laneWidth = width / numColors, bucketHeight = 60, bucketY = height - bucketHeight - 20;
+    for (let i = 0; i < numColors; i++) {
+        ctx.fillStyle = COLORS[buckets[i]]; ctx.beginPath();
+        ctx.roundRect(i * laneWidth + 10, bucketY, laneWidth - 20, bucketHeight, 15);
+        ctx.fill(); ctx.closePath();
+    }
+}
+
+function drawMisses() {
+    ctx.fillStyle = "rgba(255, 255, 255, 0.5)"; ctx.font = "20px Arial"; ctx.textAlign = "center";
+    ctx.fillText(`Strikes: ${inGameMisses} / ${maxMisses}`, width / 2, 80);
+}
+
+function loop() {
+    ctx.clearRect(0, 0, width, height);
+    if (gameState === "PLAYING" || gameState === "PAUSED" || gameState === "REVIVE_PROMPT") {
+        if (gameState === "PLAYING") { frames++; spawnBall(); balls.forEach(b => b.update()); checkCollisions(); }
+        balls.forEach(b => b.draw(ctx)); drawBuckets(); drawMisses();
+        
+        if (isFreeFallMode) {
+            ctx.fillStyle = "rgba(243, 139, 168, 0.2)"; ctx.font = "bold 40px sans-serif";
+            ctx.textAlign = "center"; ctx.fillText("FREE FALL", width / 2, height / 2);
+        }
+        if (gameState === "PAUSED" || gameState === "REVIVE_PROMPT") {
+            ctx.fillStyle = "rgba(0, 0, 0, 0.6)"; ctx.fillRect(0, 0, width, height);
+        }
+    } else { drawBuckets(); }
+    requestAnimationFrame(loop);
+}
+
+function handleInput(x) {
+    if (gameState !== "PLAYING") return; playSound('shift');
+    if (score >= 100) { buckets.sort(() => Math.random() - 0.5); } 
+    else {
+        if (x >= width / 2) { let last = buckets.pop(); buckets.unshift(last); } 
+        else { let first = buckets.shift(); buckets.push(first); }
+    }
+}
+
+window.addEventListener('keydown', (e) => {
+    if (gameState !== "PLAYING") return;
+    if (e.key === "ArrowLeft") handleInput(0); 
+    else if (e.key === "ArrowRight") handleInput(width); 
+    else if (e.key === " ") { handleInput(width); e.preventDefault(); }
+});
+window.addEventListener('touchstart', (e) => handleInput(e.touches[0].clientX));
+window.addEventListener('mousedown', (e) => { if (e.sourceCapabilities && e.sourceCapabilities.firesTouchEvents) return; handleInput(e.clientX); });
+
+loadData(); requestAnimationFrame(loop);
+</script>
+</body>
+</html>
